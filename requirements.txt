@@ -1,4 +1,4 @@
 pyTelegramBotAPI
 yt_dlp
-google-generativeai
 requests
+g4f
