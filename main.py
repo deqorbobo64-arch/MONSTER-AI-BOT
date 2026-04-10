@@ -1,28 +1,24 @@
 import os
 import telebot
 import yt_dlp
-import google.generativeai as genai
+from g4f.client import Client
 
-# Kalitlarni Railway'dan olamiz
+# Kalit faqat Telegram uchun kerak
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY") # Endi Gemini kaliti
-
-# Gemini AI ni sozlash
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-pro')
 
 bot = telebot.TeleBot(TOKEN)
+ai_client = Client()
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "👹 VIP BEPUL AI BOT ISHGA TUSHDI.\n\nMenga xohlagan savolingizni bering yoki video link yuboring!")
+    bot.reply_to(message, "👹 VIP FREE AI BOT TAYYOR!\n\nMenga xohlagan savolingizni bering yoki video link yuboring.")
 
 @bot.message_handler(func=lambda m: "http" in m.text)
 def handle_links(message):
     url = message.text
-    m_status = bot.reply_to(message, "⏳ Video tahlil qilinmoqda va yuklanmoqda...")
+    m_status = bot.reply_to(message, "⏳ Video yuklanmoqda...")
     try:
-        ydl_opts = {'outtmpl': 'video.mp4', 'format': 'best', 'quiet': True, 'max_filesize': 45*1024*1024}
+        ydl_opts = {'outtmpl': 'video.mp4', 'format': 'best', 'quiet': True}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         with open('video.mp4', 'rb') as v:
@@ -30,14 +26,17 @@ def handle_links(message):
         os.remove('video.mp4')
         bot.delete_message(message.chat.id, m_status.message_id)
     except:
-        bot.edit_message_text("❌ Linkdan video yuklab bo'lmadi yoki video juda katta.", message.chat.id, m_status.message_id)
+        bot.edit_message_text("❌ Video yuklashda xato.", message.chat.id, m_status.message_id)
 
 @bot.message_handler(func=lambda m: True)
 def chat_ai(message):
     try:
-        response = model.generate_content(message.text)
-        bot.reply_to(message, response.text)
+        response = ai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": message.text}]
+        )
+        bot.reply_to(message, response.choices[0].message.content)
     except:
-        bot.reply_to(message, "🤖 AI hozircha band, birozdan keyin yozib ko'ring.")
+        bot.reply_to(message, "🤖 AI hozircha javob berolmaydi, birozdan keyin yozing.")
 
 bot.infinity_polling()
