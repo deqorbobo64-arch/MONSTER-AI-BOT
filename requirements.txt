@@ -1,0 +1,131 @@
+import logging
+import base64
+import os
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from openai import OpenAI
+
+# Tokenlar Railway dan avtomatik olinadi (xavfsiz!)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+logging.basicConfig(level=logging.INFO)
+
+user_histories = {}
+
+def get_history(uid):
+    if uid not in user_histories:
+        user_histories[uid] = []
+    return user_histories[uid]
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 MONSTER AI BOT\n\n"
+        "✅ Aqlli savol-javob\n"
+        "✅ Rasm tahlil\n"
+        "✅ Ovozli xabar\n"
+        "✅ Link tahlil\n"
+        "✅ Kod yozish\n"
+        "✅ Tarjima\n\n"
+        "Yozing yoki yuboring! 💪"
+    )
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_histories[update.effective_user.id] = []
+    await update.message.reply_text("🧹 Xotira tozalandi!")
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    text = update.message.text
+    await context.bot.send_chat_action(update.effective_chat.id, "typing")
+
+    history = get_history(uid)
+    history.append({"role": "user", "content": text})
+    if len(history) > 20:
+        user_histories[uid] = history[-20:]
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Sen MONSTER nomli eng aqlli AI assistantsan. O'zbek, rus va ingliz tillarini bilasan. Linklar berilsa tahlil qilasan. Har doim batafsil, foydali javob berasan. Emoji ishlatasan."},
+                *get_history(uid)
+            ]
+        )
+        reply = response.choices[0].message.content
+        history.append({"role": "assistant", "content": reply})
+
+        if len(reply) > 4096:
+            for i in range(0, len(reply), 4096):
+                await update.message.reply_text(reply[i:i+4096])
+        else:
+            await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Xatolik: {str(e)}")
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_chat_action(update.effective_chat.id, "typing")
+    try:
+        file = await context.bot.get_file(update.message.voice.file_id)
+        voice_bytes = await file.download_as_bytearray()
+
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=("voice.ogg", bytes(voice_bytes), "audio/ogg")
+        )
+        text = transcript.text
+        await update.message.reply_text(f"🎙 Siz dedingiz:\n{text}")
+
+        uid = update.effective_user.id
+        history = get_history(uid)
+        history.append({"role": "user", "content": text})
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Sen MONSTER nomli eng aqlli AI assistantsan."},
+                *history
+            ]
+        )
+        reply = response.choices[0].message.content
+        history.append({"role": "assistant", "content": reply})
+        await update.message.reply_text(reply)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ovoz xatolik: {str(e)}")
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_chat_action(update.effective_chat.id, "typing")
+    try:
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        photo_bytes = await file.download_as_bytearray()
+        b64 = base64.b64encode(photo_bytes).decode()
+        caption = update.message.caption or "Bu rasmni batafsil tahlil qil"
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": caption}
+                ]
+            }]
+        )
+        await update.message.reply_text(response.choices[0].message.content)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Rasm xatolik: {str(e)}")
+
+def main():
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("clear", clear))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    print("✅ MONSTER BOT ishlamoqda!")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
